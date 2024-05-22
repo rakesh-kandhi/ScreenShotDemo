@@ -21,7 +21,7 @@ const FullScreenCapture = () => {
     }
   };
 
-  const handleDelete = () => {
+  const handleDeleteScreenshot = () => {
     setScreenCapture("");
     setRectangles([]);
   };
@@ -63,8 +63,8 @@ const FullScreenCapture = () => {
   const handleMouseUp = () => {
     if (isEditing) {
       setDragging(false);
-      setIsEditing(false); 
-      setRectangles([...rectangles, { startPos, endPos }]); 
+      setIsEditing(false);
+      setRectangles([...rectangles, { id: Date.now(), startPos, endPos }]);
     }
   };
 
@@ -73,6 +73,10 @@ const FullScreenCapture = () => {
       const rect = imageRef.current.getBoundingClientRect();
       setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
     }
+  };
+
+  const handleDeleteRectangle = (id) => {
+    setRectangles(rectangles.filter(rect => rect.id !== id));
   };
 
   return (
@@ -117,14 +121,20 @@ const FullScreenCapture = () => {
                 <button onClick={handleEdit} className="edit-button">
                   Edit
                 </button>
-                <button onClick={handleDelete} className="delete-button">
+                <button onClick={handleDeleteScreenshot} className="delete-button">
                   Delete
                 </button>
               </div>
-              {rectangles.map((rect, index) => (
-                <div key={index} style={getRectangleStyle(rect)} />
+              {rectangles.map((rect) => (
+                <div className="cross-rectangle" key={rect.id} style={getRectangleStyle(rect)}>
+                  <button
+                    onClick={() => handleDeleteRectangle(rect.id)}
+                   className="cross-button"
+                  >
+                    X
+                  </button>
+                </div>
               ))}
-              {console.log(rectangles)}
               {dragging && (
                 <div style={getRectangleStyle({ startPos, endPos })} />
               )}

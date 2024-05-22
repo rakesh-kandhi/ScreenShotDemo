@@ -1,3 +1,6 @@
+.none {
+  display: none;
+}
 .content-container {
   border: 1px solid gray;
   padding: 20px;
@@ -39,4 +42,19 @@
 
 .div-capture:hover .div-edit {
   display: flex;
+}
+
+.cross-rectangle:hover .cross-button {
+  display: block; /* Ensure the button is shown on hover */
+}
+
+.cross-button {
+  display: none; /* Initially hide the button */
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: white;
+  border: none;
+  cursor: pointer;
+  padding: 2px 5px;
 }
