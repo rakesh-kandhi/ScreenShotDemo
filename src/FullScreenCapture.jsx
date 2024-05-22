@@ -45,13 +45,7 @@ const FullScreenCapture = () => {
         </p>
       </div>
       <div>
-        <input
-          type="checkbox"
-          onChange={handleCaptureChecked}
-          id="subscribe"
-          name="subscribe"
-        />
-        <button onClick={handleCaptureClick}>Capture</button>
+        <button onClick={handleCaptureClick}>Capture Screenshot</button>
       </div>
       {screenCapture && (
         <div>
