@@ -1,6 +1,5 @@
 import React, { useState, useRef } from "react";
 import html2canvas from "html2canvas";
-import './index.css'; // Make sure to import the CSS file
 
 const FullScreenCapture = () => {
   const [screenCapture, setScreenCapture] = useState("");
@@ -35,23 +34,11 @@ const FullScreenCapture = () => {
     if (isEditing) {
       setDragging(true);
       const rect = imageRef.current.getBoundingClientRect();
-      setStartPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+      setStartPos({
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      });
       setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-    }
-  };
-
-  const handleMouseMove = (event) => {
-    if (dragging) {
-      const rect = imageRef.current.getBoundingClientRect();
-      setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (isEditing) {
-      setDragging(false);
-      setIsEditing(false); // Disable editing after drawing the rectangle
-      setRectangles([...rectangles, { startPos, endPos }]); // Store the drawn rectangle
     }
   };
 
@@ -61,14 +48,31 @@ const FullScreenCapture = () => {
     const width = Math.abs(rect.startPos.x - rect.endPos.x);
     const height = Math.abs(rect.startPos.y - rect.endPos.y);
     return {
+      zIndex: 0,
+      color: "red",
       left: `${x}px`,
       top: `${y}px`,
       width: `${width}px`,
       height: `${height}px`,
-      position: 'absolute',
-      border: '2px solid red',
-      cursor: 'crosshair',
+      position: "absolute",
+      border: "2px solid red",
+      cursor: "crosshair",
     };
+  };
+
+  const handleMouseUp = () => {
+    if (isEditing) {
+      setDragging(false);
+      setIsEditing(false); 
+      setRectangles([...rectangles, { startPos, endPos }]); 
+    }
+  };
+
+  const handleMouseMove = (event) => {
+    if (dragging) {
+      const rect = imageRef.current.getBoundingClientRect();
+      setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    }
   };
 
   return (
@@ -109,19 +113,18 @@ const FullScreenCapture = () => {
                 alt="div-capture"
                 className="captured-image"
               />
-              {isHovered && (
-                <div className="div-edit">
-                  <button onClick={handleEdit} className="edit-button">
-                    Edit
-                  </button>
-                  <button onClick={handleDelete} className="delete-button">
-                    Delete
-                  </button>
-                </div>
-              )}
+              <div className={isHovered ? "div-edit" : "none"}>
+                <button onClick={handleEdit} className="edit-button">
+                  Edit
+                </button>
+                <button onClick={handleDelete} className="delete-button">
+                  Delete
+                </button>
+              </div>
               {rectangles.map((rect, index) => (
                 <div key={index} style={getRectangleStyle(rect)} />
               ))}
+              {console.log(rectangles)}
               {dragging && (
                 <div style={getRectangleStyle({ startPos, endPos })} />
               )}

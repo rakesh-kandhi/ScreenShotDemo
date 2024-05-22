@@ -1,5 +1,5 @@
 import React from 'react';
-import FullScreenCapture from './FullScreenCapture';
+import FullScreenCapture from './components/FullScreenCapture';
 
 const App = () => {
   return (
