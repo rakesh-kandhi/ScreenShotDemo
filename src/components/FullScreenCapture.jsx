@@ -1,83 +1,162 @@
-import React, { useState, useRef } from "react";
-import html2canvas from "html2canvas";
+import React, { useState, useRef, useCallback, useEffect, memo } from "react";
+
+// Drags shorter than this (a plain click, or a slip of the mouse) are discarded
+// instead of committing a zero-area rectangle.
+const MIN_DRAG_SIZE = 4;
+
+const normalizeRect = (start, end) => ({
+  x: Math.min(start.x, end.x),
+  y: Math.min(start.y, end.y),
+  width: Math.abs(start.x - end.x),
+  height: Math.abs(start.y - end.y),
+});
+
+const getRectangleStyle = (rect) => {
+  const { x, y, width, height } = normalizeRect(rect.startPos, rect.endPos);
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+  };
+};
+
+const Rectangle = memo(({ rect, onDelete }) => (
+  <div className="cross-rectangle" style={getRectangleStyle(rect)}>
+    <button onClick={() => onDelete(rect.id)} className="cross-button">
+      X
+    </button>
+  </div>
+));
 
 const FullScreenCapture = () => {
   const [screenCapture, setScreenCapture] = useState("");
-  const [isHovered, setIsHovered] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const [endPos, setEndPos] = useState({ x: 0, y: 0 });
   const [rectangles, setRectangles] = useState([]);
   const imageRef = useRef(null);
 
-  const handleCaptureClick = async () => {
+  // The in-progress selection lives in refs and is painted straight to the DOM,
+  // so a drag costs zero React renders instead of one per mousemove event.
+  const previewRef = useRef(null);
+  const dragRef = useRef({ active: false, start: { x: 0, y: 0 }, end: { x: 0, y: 0 } });
+  const frameRef = useRef(0);
+
+  // Object URLs must be revoked by hand; keeping the latest one in a ref lets
+  // both the replace and unmount paths release the previous blob.
+  const objectUrlRef = useRef("");
+
+  const setCapture = useCallback((url) => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = url;
+    setScreenCapture(url);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    },
+    []
+  );
+
+  const handleCaptureClick = useCallback(async () => {
+    setIsCapturing(true);
     try {
-      const canvas = await html2canvas(document.body);
-      const dataURL = canvas.toDataURL("image/png");
-      setScreenCapture(dataURL);
+      // Loaded on demand: html2canvas is by far the heaviest dependency, and
+      // keeping it out of the entry chunk means it is only fetched if the user
+      // actually captures something.
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(document.body, {
+        scale: 1,
+        logging: false,
+        removeContainer: true,
+      });
+      // toBlob + object URL avoids materialising a multi-megabyte base64 string
+      // in React state the way toDataURL does.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (blob) setCapture(URL.createObjectURL(blob));
     } catch (error) {
       console.error("Error capturing screenshot:", error);
+    } finally {
+      setIsCapturing(false);
     }
-  };
+  }, [setCapture]);
 
-  const handleDeleteScreenshot = () => {
-    setScreenCapture("");
+  const handleDeleteScreenshot = useCallback(() => {
+    setCapture("");
     setRectangles([]);
+    setIsEditing(false);
+  }, [setCapture]);
+
+  const handleEdit = useCallback(() => setIsEditing(true), []);
+
+  const handleDeleteRectangle = useCallback((id) => {
+    setRectangles((prev) => prev.filter((rect) => rect.id !== id));
+  }, []);
+
+  const pointIn = (event) => {
+    const bounds = imageRef.current.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   };
 
-  const handleEdit = () => {
-    setIsEditing(true);
-  };
+  const paintPreview = useCallback(() => {
+    frameRef.current = 0;
+    const el = previewRef.current;
+    if (!el) return;
+    const { x, y, width, height } = normalizeRect(dragRef.current.start, dragRef.current.end);
+    el.style.transform = `translate(${x}px, ${y}px)`;
+    el.style.width = `${width}px`;
+    el.style.height = `${height}px`;
+  }, []);
 
-  const handleMouseDown = (event) => {
-    if (isEditing) {
-      setDragging(true);
-      const rect = imageRef.current.getBoundingClientRect();
-      setStartPos({
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      });
-      setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-    }
-  };
+  const handleMouseDown = useCallback(
+    (event) => {
+      if (!isEditing) return;
+      const point = pointIn(event);
+      dragRef.current = { active: true, start: point, end: point };
+      if (previewRef.current) previewRef.current.style.display = "block";
+      paintPreview();
+    },
+    [isEditing, paintPreview]
+  );
 
-  const getRectangleStyle = (rect) => {
-    const x = Math.min(rect.startPos.x, rect.endPos.x);
-    const y = Math.min(rect.startPos.y, rect.endPos.y);
-    const width = Math.abs(rect.startPos.x - rect.endPos.x);
-    const height = Math.abs(rect.startPos.y - rect.endPos.y);
-    return {
-      zIndex: 0,
-      color: "red",
-      left: `${x}px`,
-      top: `${y}px`,
-      width: `${width}px`,
-      height: `${height}px`,
-      position: "absolute",
-      border: "2px solid red",
-      cursor: "crosshair",
+  // Move/up are bound to the window so the selection keeps tracking (and always
+  // ends) even when the pointer leaves the image.
+  useEffect(() => {
+    if (!isEditing) return undefined;
+
+    const handleMouseMove = (event) => {
+      if (!dragRef.current.active) return;
+      dragRef.current.end = pointIn(event);
+      // Coalesce bursts of mousemove into at most one paint per frame.
+      if (!frameRef.current) frameRef.current = requestAnimationFrame(paintPreview);
     };
-  };
 
-  const handleMouseUp = () => {
-    if (isEditing) {
-      setDragging(false);
+    const handleMouseUp = () => {
+      const { active, start, end } = dragRef.current;
+      if (!active) return;
+      dragRef.current.active = false;
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = 0;
+      }
+      if (previewRef.current) previewRef.current.style.display = "none";
+
+      const { width, height } = normalizeRect(start, end);
+      if (width >= MIN_DRAG_SIZE && height >= MIN_DRAG_SIZE) {
+        setRectangles((prev) => [...prev, { id: Date.now(), startPos: start, endPos: end }]);
+      }
       setIsEditing(false);
-      setRectangles([...rectangles, { id: Date.now(), startPos, endPos }]);
-    }
-  };
+    };
 
-  const handleMouseMove = (event) => {
-    if (dragging) {
-      const rect = imageRef.current.getBoundingClientRect();
-      setEndPos({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-    }
-  };
-
-  const handleDeleteRectangle = (id) => {
-    setRectangles(rectangles.filter(rect => rect.id !== id));
-  };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isEditing, paintPreview]);
 
   return (
     <div>
@@ -92,54 +171,37 @@ const FullScreenCapture = () => {
         </p>
       </div>
       <div>
-        <button onClick={handleCaptureClick}>Capture Screenshot</button>
+        <button onClick={handleCaptureClick} disabled={isCapturing}>
+          {isCapturing ? "Capturing…" : "Capture Screenshot"}
+        </button>
       </div>
       {screenCapture && (
-        <div>
-          <center>
-            <div
-              className="div-capture"
-              style={{
-                position: "relative",
-                display: "inline-block",
-                marginTop: "20px",
-              }}
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              ref={imageRef}
-            >
-              <img
-                width={800}
-                src={screenCapture}
-                alt="div-capture"
-                className="captured-image"
-              />
-              <div className={isHovered ? "div-edit" : "none"}>
-                <button onClick={handleEdit} className="edit-button">
-                  Edit
-                </button>
-                <button onClick={handleDeleteScreenshot} className="delete-button">
-                  Delete
-                </button>
-              </div>
-              {rectangles.map((rect) => (
-                <div className="cross-rectangle" key={rect.id} style={getRectangleStyle(rect)}>
-                  <button
-                    onClick={() => handleDeleteRectangle(rect.id)}
-                   className="cross-button"
-                  >
-                    X
-                  </button>
-                </div>
-              ))}
-              {dragging && (
-                <div style={getRectangleStyle({ startPos, endPos })} />
-              )}
+        <div className="capture-wrapper">
+          <div
+            className={`div-capture${isEditing ? " is-editing" : ""}`}
+            onMouseDown={handleMouseDown}
+            ref={imageRef}
+          >
+            <img
+              width={800}
+              src={screenCapture}
+              alt="div-capture"
+              className="captured-image"
+              draggable={false}
+            />
+            <div className="div-edit">
+              <button onClick={handleEdit} className="edit-button">
+                Edit
+              </button>
+              <button onClick={handleDeleteScreenshot} className="delete-button">
+                Delete
+              </button>
             </div>
-          </center>
+            {rectangles.map((rect) => (
+              <Rectangle key={rect.id} rect={rect} onDelete={handleDeleteRectangle} />
+            ))}
+            <div ref={previewRef} className="drag-preview" />
+          </div>
         </div>
       )}
     </div>

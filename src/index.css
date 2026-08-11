@@ -8,18 +8,28 @@
   border-radius: 10px;
 }
 
+.capture-wrapper {
+  text-align: center;
+}
+
 .div-capture {
   position: relative;
   display: inline-block;
   margin-top: 20px;
 }
 
+.div-capture.is-editing {
+  cursor: crosshair;
+}
+
 .captured-image {
   border: 1px solid black;
+  display: block;
+  user-select: none;
 }
 
 .div-edit {
-  display: flex;
+  display: none;
   justify-content: center;
   position: absolute;
   top: 50%;
@@ -40,8 +50,34 @@
   cursor: pointer;
 }
 
+/* Hover state is pure CSS so pointer enter/leave never re-renders React. */
 .div-capture:hover .div-edit {
   display: flex;
+}
+
+.div-capture.is-editing .div-edit {
+  display: none;
+}
+
+.cross-rectangle,
+.drag-preview {
+  position: absolute;
+  border: 2px solid red;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.cross-rectangle {
+  pointer-events: auto;
+}
+
+/* The live selection is moved with transform (compositor-only) rather than
+   left/top, so dragging never triggers layout. */
+.drag-preview {
+  display: none;
+  top: 0;
+  left: 0;
+  will-change: transform;
 }
 
 .cross-rectangle:hover .cross-button {
